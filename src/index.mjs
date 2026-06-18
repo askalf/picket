@@ -1,0 +1,16 @@
+/**
+ * @askalf/picket — a governed agentic browser.
+ *
+ * An indirect-prompt-injection firewall + action gate that wraps a CDP browser
+ * so agents can read untrusted web pages without being hijacked by them.
+ * Part of the Own Your Stack agent-security suite: warden · keeper · canon · cordon.
+ */
+
+export { GovernedBrowser, KeeperStub } from './govern.mjs';
+export { detect, analyzeNode, ACTIONS, worstAction, severityToAction } from './detect.mjs';
+export { captureFromHtml, captureFromBridge } from './capture.mjs';
+export { buildSafeObservation } from './neutralize.mjs';
+export { WardenClient, LocalPolicy, makePolicy } from './policy.mjs';
+export { LLMJudge, applyEscalations, selectEscalationCandidates, heuristicBackend, VERDICTS_SCHEMA } from './judge.mjs';
+export { makeClaudeBackend } from './claude-judge.mjs';
+export * as patterns from './patterns.mjs';
