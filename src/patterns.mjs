@@ -103,3 +103,9 @@ export function extractEmails(text) {
 export function hostOf(url) {
   try { return new URL(url).host.toLowerCase(); } catch { return null; }
 }
+
+/** Strip URLs and emails before verb-matching so a word inside a hostname or
+ *  path (e.g. "upload" in upload.wikimedia.org) can't satisfy an exfil verb. */
+export function stripSinks(text) {
+  return text.replace(URL_RE, ' ').replace(EMAIL_RE, ' ');
+}

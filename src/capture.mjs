@@ -118,7 +118,7 @@ export function captureFromHtml(html, opts = {}) {
             if (titleEl) title = titleEl.text.trim();
             for (const meta of (child.querySelectorAll ? child.querySelectorAll('meta') : [])) {
               const content = meta.getAttribute('content');
-              if (content && content.trim()) nodes.push(mkNode(id++, content, 'meta', 'meta', `${path}>head>meta`, true, ['meta']));
+              if (content && content.trim()) nodes.push(mkNode(id++, content, 'meta', 'meta', `${path}>head>meta`, false, []));
             }
           }
           continue;
@@ -136,7 +136,7 @@ export function captureFromHtml(html, opts = {}) {
         // attribute-sourced text is never rendered as body copy -> treat as hidden
         for (const [attr, source] of ATTR_SOURCES) {
           const v = child.getAttribute && child.getAttribute(attr);
-          if (v && v.trim()) nodes.push(mkNode(id++, v, source, tag, `${path}>${tag}@${attr}`, true, ['attribute']));
+          if (v && v.trim()) nodes.push(mkNode(id++, v, source, tag, `${path}>${tag}@${attr}`, false, []));
         }
 
         walk(child, `${path}>${tag}`, { hidden, reasons: hidden ? reasons : [], bg });
@@ -185,14 +185,14 @@ function inPageExtract() {
         const r = [...inheritedHidden, ...isHidden(child)];
         for (const a of ['alt', 'title', 'aria-label', 'placeholder']) {
           const v = child.getAttribute && child.getAttribute(a);
-          if (v) push(v, 'attr:' + a, tag, true, ['attribute']);
+          if (v) push(v, 'attr:' + a, tag, false, []);
         }
         walk(child, r);
       }
     }
   };
   for (const c of document.head ? document.head.querySelectorAll('meta[content]') : []) {
-    push(c.getAttribute('content'), 'meta', 'meta', true, ['meta']);
+    push(c.getAttribute('content'), 'meta', 'meta', false, []);
   }
   walk(document.body, []);
   return { title: document.title, nodes: out };

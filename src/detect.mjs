@@ -11,7 +11,7 @@
 
 import {
   INSTRUCTION_TO_AI, AUTHORITY_SPOOF, TOOL_CALL, EXFIL_VERB, SENSITIVE,
-  SUSPICIOUS_SINKS, stripInvisible, matchAny, matchedLabels,
+  SUSPICIOUS_SINKS, stripInvisible, stripSinks, matchAny, matchedLabels,
   extractUrls, extractEmails, hostOf,
 } from './patterns.mjs';
 
@@ -79,13 +79,15 @@ export function analyzeNode(node, ctx) {
   });
   const knownSink = SUSPICIOUS_SINKS.some((re) => re.test(clean));
   const externalSink = offOriginUrl || emails.length > 0 || knownSink;
-  signals.exfilTarget = externalSink && matchAny(clean, EXFIL_VERB);
+  // verb must appear in PROSE, not inside the sink's own URL/email text
+  signals.exfilTarget = externalSink && matchAny(stripSinks(clean), EXFIL_VERB);
 
   // A node is only a Finding if it carries a command signal, OR it is hidden
   // with substance, OR it fuses exfil with a reason to care. Pure-hidden
-  // boilerplate (sr-only labels, layout comments) is intentionally ignored.
+  // boilerplate (sr-only labels, layout comments) — and a hidden node that
+  // merely contains a bare URL — are intentionally ignored.
   const commandSignal = signals.instructionToAI || signals.authoritySpoof || signals.toolCall || signals.zeroWidth;
-  const hiddenSubstance = signals.hidden && (signals.sensitive || signals.exfilTarget || urls.length > 0);
+  const hiddenSubstance = signals.hidden && (signals.sensitive || signals.exfilTarget);
   const exfilCombo = signals.exfilTarget && (signals.sensitive || signals.instructionToAI || signals.hidden);
   if (!commandSignal && !hiddenSubstance && !exfilCombo) return null;
 
