@@ -262,9 +262,12 @@ seam is the real `@askalf/keeper` client.)
 2. ~~**MCP server**~~ — **done** (`src/mcp.mjs`, `bin/picket-mcp.mjs`): the
    governed browser as `picket_observe`/`picket_gate`/`picket_login` for any MCP
    client. (Next: canon-scan the server itself.)
-3. **Live context-broker** — promote the bridge from one shared Chrome to a pool
-   of isolated, keeper-backed persona contexts (checkout/checkin), which also
-   fixes today's "shared prod, never close()" fragility.
+3. ~~**Live context-broker**~~ — **done** (`src/broker.mjs`): a pool of isolated,
+   keeper-backed persona contexts (`checkout`/`checkin`) on one shared Chrome —
+   per-persona session that's logged-in once and reused, a per-persona lock so
+   concurrent agents never share a session, LRU eviction, and a non-destructive
+   `close()` (disconnect, never `browser.close()`). `captureFromBridge({ page })`
+   reads a checked-out authenticated session through the firewall.
 4. **Session → canon skill** — record a governed session once, generalize to a
    *signed, pinned, drift-checked* `canon` browser skill; replay deterministically.
 5. **Replay verification oracle** — re-run a session and diff DOM/screenshot/
@@ -286,6 +289,7 @@ src/
   neutralize.mjs    Observation + Detection → safe, model-facing view
   policy.mjs        LocalPolicy + WardenClient (fail-safe escalation)
   govern.mjs        GovernedBrowser: the 3 planes + KeeperStub
+  broker.mjs        ContextBroker: pool of keeper-backed persona contexts
   mcp.mjs           MCP server: the 3 planes as picket_observe/gate/login
   index.mjs         barrel
 demo/
@@ -295,9 +299,10 @@ demo/
   run-demo.mjs         side-by-side + writes report.json / REPORT.md
   escalation-demo.mjs  deterministic miss → judge catch
   mcp-demo.mjs         drive the governed browser over the MCP protocol
+  broker-demo.mjs      a pool of isolated persona contexts on one shared Chrome
 bin/picket.mjs         CLI (scan, --json, --safe, CI exit codes)
 bin/picket-mcp.mjs     MCP server (stdio) entrypoint
-test/                  detector/gate/judge/cache/mcp — 43 tests, no browser
+test/                  detector/gate/judge/cache/mcp/broker — 51 tests, no browser
 ```
 
 MIT.
