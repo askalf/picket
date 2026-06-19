@@ -121,11 +121,32 @@ export function parseVerdicts(text) {
 }
 
 export class LLMJudge {
-  constructor({ backend, maxNodes = 12, minConfidence = 0.6 } = {}) {
+  constructor({ backend, maxNodes = 12, minConfidence = 0.6, cache, cacheMax = 500 } = {}) {
     if (typeof backend !== 'function') throw new Error('LLMJudge needs a backend({candidates,system,user,schema}) function');
     this.backend = backend;
     this.maxNodes = maxNodes;
     this.minConfidence = minConfidence;
+    // Content-keyed verdict cache. A backend's classification of a fragment is a
+    // pure function of (fragment text, visibility, task, origin) — all of which
+    // go into the prompt — so a recurring snippet (a shared site header, repeated
+    // boilerplate, the same planted payload across pages of one crawl) is judged
+    // once and reused, cutting token spend on the hot path. `cache:false`
+    // disables it; pass a Map to share one across judge instances.
+    this.cache = cache === false ? null : (cache instanceof Map ? cache : new Map());
+    this.cacheMax = cacheMax;
+    this.stats = { hits: 0, misses: 0 };
+  }
+
+  /** Cache key: everything the prompt conditions the verdict on. NOT the node id
+   *  (which is per-page-load), so the same fragment re-maps to the new id. */
+  _key(c, ctx, obs) {
+    return `${ctx.task || ''}␟${obs.origin || ''}␟${c.hidden ? 'H' : 'V'}␟${c.text}`;
+  }
+
+  _evict() {
+    if (!this.cache) return;
+    // Map preserves insertion order → the first key is the least-recently-set.
+    while (this.cache.size > this.cacheMax) this.cache.delete(this.cache.keys().next().value);
   }
 
   async review(obs, detection, ctx = {}) {
@@ -138,26 +159,56 @@ export class LLMJudge {
     // (whose original-typed `.id` we reuse, so applyEscalations matches obs.nodes).
     const norm = (id) => String(id).replace(/^#/, '').trim();
     const byId = new Map(candidates.map((c) => [norm(c.id), c]));
-    const { system, user } = buildJudgePrompt(candidates, { ...ctx, origin: obs.origin });
 
-    let verdicts = [];
-    try {
-      verdicts = await this.backend({ candidates, system, user, schema: VERDICTS_SCHEMA, ctx });
-    } catch (err) {
-      return { escalations: [], verdicts: [], candidates, error: String(err && err.message || err) };
+    // Serve cache hits; collect misses for the backend. Cached verdicts re-attach
+    // the CURRENT candidate id so downstream mapping is unchanged.
+    const verdicts = [];
+    const toAsk = [];
+    for (const c of candidates) {
+      const k = this.cache && this._key(c, ctx, obs);
+      if (k != null && this.cache.has(k)) {
+        const hit = this.cache.get(k);
+        this.cache.delete(k); this.cache.set(k, hit); // LRU bump
+        this.stats.hits++;
+        verdicts.push({ ...hit, id: c.id });
+      } else {
+        if (this.cache) this.stats.misses++;
+        toAsk.push(c);
+      }
+    }
+
+    let error;
+    if (toAsk.length) {
+      const { system, user } = buildJudgePrompt(toAsk, { ...ctx, origin: obs.origin });
+      try {
+        const fresh = await this.backend({ candidates: toAsk, system, user, schema: VERDICTS_SCHEMA, ctx });
+        for (const v of Array.isArray(fresh) ? fresh : []) {
+          const cand = byId.get(norm(v && v.id));
+          if (!cand) continue; // a verdict for an id we never sent — ignore
+          const entry = { injection: !!v.injection, action: v.action, reason: v.reason, confidence: v.confidence };
+          verdicts.push({ ...entry, id: cand.id });
+          if (this.cache) { this.cache.set(this._key(cand, ctx, obs), entry); this._evict(); }
+        }
+      } catch (err) {
+        // Inert on error: any cache hits above still apply (escalate-only, so they
+        // can only add protection); the deterministic verdict stands for the rest.
+        error = String(err && err.message || err);
+      }
     }
 
     const escalations = [];
     for (const v of verdicts) {
       if (!v || !v.injection) continue;
       const cand = byId.get(norm(v.id));
-      if (!cand) continue; // a verdict for an id we never sent — ignore, don't act on it
+      if (!cand) continue;
       const conf = typeof v.confidence === 'number' ? v.confidence : 1;
       if (conf < this.minConfidence) continue;
       if (actionRank(v.action) <= actionRank(cand.currentAction)) continue; // escalate-only
       escalations.push({ nodeId: cand.id, action: v.action, reason: v.reason || 'llm-judge', confidence: conf });
     }
-    return { escalations, verdicts, candidates };
+    const result = { escalations, verdicts, candidates };
+    if (error) result.error = error;
+    return result;
   }
 }
 
