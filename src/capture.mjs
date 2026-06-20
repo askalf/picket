@@ -168,8 +168,16 @@ function inPageExtract() {
     if (parseFloat(cs.fontSize) <= 1) r.push('tiny-font');
     const rect = el.getBoundingClientRect();
     if (rect.right < 0 || rect.bottom < 0 || rect.left > (innerWidth + 2000) || (rect.width <= 1 && rect.height <= 1 && el.textContent.trim().length > 4)) r.push('offscreen');
-    const fg = cs.color, bg = cs.backgroundColor;
-    if (fg && bg && fg === bg) r.push('low-contrast');
+    // Low-contrast by color DISTANCE, matching the static backend's colorDist<=24
+    // tolerance. Exact string equality (fg === bg) missed near-but-not-identical
+    // colors — #fffffe on #ffffff is a 1-bit-off evasion the static path caught.
+    // getComputedStyle returns rgb()/rgba(); skip a transparent background
+    // (alpha 0): the real backdrop is an ancestor's, so matching rgba(…,0) would
+    // be a false signal.
+    const rgb = (s) => { const m = /rgba?\(([^)]+)\)/.exec(s || ''); if (!m) return null; const p = m[1].split(',').map(parseFloat); return p.length >= 3 ? p : null; };
+    const fg = rgb(cs.color), bg = rgb(cs.backgroundColor);
+    const opaque = (c) => c && (c.length < 4 || c[3] > 0);
+    if (opaque(fg) && opaque(bg) && Math.abs(fg[0] - bg[0]) + Math.abs(fg[1] - bg[1]) + Math.abs(fg[2] - bg[2]) <= 24) r.push('low-contrast');
     if (el.getAttribute('aria-hidden') === 'true') r.push('aria-hidden');
     return r;
   };
@@ -183,7 +191,10 @@ function inPageExtract() {
         const tag = child.tagName.toLowerCase();
         if (['script', 'style', 'noscript', 'template', 'svg'].includes(tag)) continue;
         const r = [...inheritedHidden, ...isHidden(child)];
-        for (const a of ['alt', 'title', 'aria-label', 'placeholder']) {
+        // Keep parity with the static backend's ATTR_SOURCES — `value` was
+        // missing, so an injection smuggled in an <input value="…"> was caught
+        // offline but invisible to the live (production) path.
+        for (const a of ['alt', 'title', 'aria-label', 'placeholder', 'value']) {
           const v = child.getAttribute && child.getAttribute(a);
           if (v) push(v, 'attr:' + a, tag, false, []);
         }
